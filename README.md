@@ -163,7 +163,7 @@ You will each be scheduled 30 minutes to present Your home exam to us, based on 
 
 Implement for higher grades
 - Basic code generation.
-- Pass `noalias` where possible allowing for better optimization (assuming your borrowchecker prevents aliasing).
+- Pass `noalias` where possible allowing for better optimization (assuming your borrow checker prevents aliasing).
 - Other attributes, intrinsics, etc. that enables further LLVM optimizations.
 - Bindings to external code, (this could allow for )
 
