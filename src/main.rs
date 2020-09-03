@@ -5,11 +5,11 @@ lalrpop_mod!(pub grammar);
 use grammar::*;
 
 fn main() {
-    println!("hello world");
+    println!("Parse an Id {:?}", IdParser::new().parse("abcd"));
 }
 
 #[test] 
 fn hello() {
-    println!("Hello in test")
+    println!("Parse an Id {:?}", IdParser::new().parse("abcd"));
 }
 

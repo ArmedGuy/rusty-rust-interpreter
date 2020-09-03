@@ -1,12 +1,14 @@
 use std::str::FromStr;
 
+use crate::ast::*;
+
 grammar;
 
-pub NumOrId = {
-    Num => <>.to_string(),
-    Id,
+pub NumOrId : NumOrId = {
+    Num => NumOrId::Num(<>),
+    Id => NumOrId::Id(<>),
 }
-
+ 
 pub Num: usize = {
     r"[0-9]+" => usize::from_str(<>).unwrap(),
 };
