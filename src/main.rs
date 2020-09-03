@@ -8,8 +8,7 @@ fn main() {
     println!("Parse an Id {:?}", IdParser::new().parse("abcd"));
 }
 
-#[test] 
+#[test]
 fn hello() {
     println!("Parse an Id {:?}", IdParser::new().parse("abcd"));
 }
-
