@@ -2,6 +2,8 @@
 
 The repo will be updated througout the course and includes a draft outline of the course and hints towards reaching the learning goals.
 
+# https://discord.gg/JtcjBfG
+
 ## Course Aim
 
 Fundamental theories about computation and different models of computation. Construction of compilers. Lexical analysis, syntax analysis, and translation into abstract syntax.Regular expressions and grammars, context-free languages and grammars, lexer and parser generators. Identifier handling and symbol table organization. Type-checking, logical inference systems. Intermediate representations and transformations for different languages. Code optimization and register allocation. Machine code generation for common architectures.
