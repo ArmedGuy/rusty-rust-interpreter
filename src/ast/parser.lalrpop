@@ -4,15 +4,181 @@ use crate::ast::*;
 
 grammar;
 
-pub NumOrId: NumOrId = {
-    Num => NumOrId::Num(<>),
-    Id => NumOrId::Id(<>),
+match {
+    // The default whitespace skipping is disabled an `ignore pattern` is specified
+    r"\s*" => { }, 
+    // Skip `// comments`
+    r"//[^\n\r]*" => { }, 
+    // Skip `/* comments */`
+    r"/\*([^\*]*\*+[^\*/])*([^\*]*\*+|[^\*])*\*/" => { },  
+    _
 }
- 
-pub Num: usize = {
-    r"[0-9]+" => usize::from_str(<>).unwrap(),
+
+
+// Primitives
+pub Num: i32 = {
+    r"[0-9]+" => i32::from_str(<>).unwrap(),
 };
 
-pub Id: String = {
-    r"([a-z]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*" => String::from_str(<>).unwrap(),
+pub Bool: bool = {
+    "true" => true,
+    "false" => false
+}
+
+Identifier: String = {
+    r"([a-zA-Z_][a-zA-Z0-9_]*)" => String::from_str(<>).unwrap(),
 };
+
+FuncIdentifier: String = {
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\(" => String::from_str(<>).unwrap(),
+};
+
+
+// Expression
+
+pub Expr: Box<Expr> = {
+    //NumExpr,
+    //BoolExpr,
+    CalculatedExpr,
+    <ModExprOp> <CalculatedExpr> => Box::new(Expr::ModOp(<>)),
+};
+
+ModExprOp: Opcode = {
+    "!" => Opcode::Neg,
+}
+
+// calculated expressions
+CalculatedExpr: Box<Expr> = {
+    CalculatedExpr BoolExprOp CalculatedTerm => Box::new(Expr::Op(<>)),
+    CalculatedExpr BoolExprRetOp CalculatedTerm => Box::new(Expr::Op(<>)),
+    CalculatedExpr ExprOp CalculatedFactor => Box::new(Expr::Op(<>)),
+    CalculatedFactor,
+};
+
+CalculatedFactor: Box<Expr> = {
+    CalculatedFactor FactorOp CalculatedTerm => Box::new(Expr::Op(<>)),
+    CalculatedTerm
+};
+
+CalculatedTerm: Box<Expr> = {
+    FuncExpr,
+    BoolTerm,
+    NumTerm,
+    Identifier => Box::new(Expr::Identifier(<>)),
+    "(" <CalculatedExpr> ")",
+};
+
+ExprOp: Opcode = { // (3)
+    "+" => Opcode::Add,
+    "-" => Opcode::Sub,
+};
+
+FactorOp: Opcode = {
+    "*" => Opcode::Mul,
+    "/" => Opcode::Div,
+};
+
+NumTerm: Box<Expr> = {
+    Num => Box::new(Expr::Number(<>)),
+};
+BoolTerm: Box<Expr> = {
+    Bool => Box::new(Expr::Boolean(<>)),
+};
+
+BoolExprOp: Opcode = {
+    "&&" => Opcode::And,
+    "||" => Opcode::Or,
+    "==" => Opcode::Is,
+};
+
+BoolExprRetOp: Opcode = {
+    "<" => Opcode::LessThen,
+    ">" => Opcode::GreaterThen,
+};
+
+Exprs = Comma<Expr>; // (0)
+
+Comma<T>: Vec<T> = { // (1)
+    <v:(<T> ",")*> <e:T?> => match e { // (2)
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
+
+FuncExpr: Box<Expr> = {
+    <i:FuncIdentifier> <e:Exprs> ")" => Box::new(Expr::Function(i, e)),
+};
+
+Type: Typedef = {
+    "()" => Typedef::Unit,
+    "bool" => Typedef::Bool,
+    "i32" => Typedef::I32,
+}
+
+VarDef: Box<Statement> = {
+    <i:Identifier> ":" <t:Type> => Box::new(Statement::VarDef(i, t))
+}
+
+// Statement
+pub Statement: Box<Statement> = {
+    <i:IStatement> ";"* => i,
+};
+
+
+IStatement: Box<Statement> = {
+    FuncStatement,
+    DefineStatement,
+    AssignStatement,
+    ConditionalStatement,
+    LoopStatement,
+    Expr => Box::new(Statement::Expr(<>))
+};
+
+
+FuncArgs = Comma<VarDef>;
+
+FuncStatement: Box<Statement> = {
+    "fn" <FuncIdentifier> <FuncArgs> ")" <("->" <Type>)?> <BlockStatement> => Box::new(Statement::Function(<>)) 
+};
+
+BlockStatement: Box<Statement> = {
+    "{" <s:Statement*> "}" => Box::new(Statement::Block(s)),
+};
+
+DefineStatement: Box<Statement> = {
+    "let" "mut" <v:VarDef> "=" <e:Expr> => Box::new(Statement::Definition(true, v, e)),
+    "let" <v:VarDef> "=" <e:Expr> => Box::new(Statement::Definition(false, v, e)),
+};
+
+AssignStatement: Box<Statement> = {
+    <i:Identifier> "=" <e:Expr> => Box::new(Statement::Assignment(i, e)),
+};
+
+ConditionalStatement: Box<Statement> = {
+    "if" <e:Expr> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::If, Some(e), b, next))
+};
+
+NextConditionalStatement: Box<Statement> = {
+    ElseIfStatement,
+    ElseStatement
+};
+
+ElseIfStatement: Box<Statement> = {
+    "else if" <e:Expr> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::ElseIf, Some(e), b, next))
+};
+
+ElseStatement: Box<Statement> = {
+    "else" <b:BlockStatement> => Box::new(Statement::Conditional(ConditionalType::Else, None, b, None))
+};
+
+LoopStatement: Box<Statement> = {
+    "while" "(" <e:Expr> ")" <b:BlockStatement> => Box::new(Statement::WhileLoop(e, b))
+};
+
+pub Program: Box<Statement> = {
+    Statement+ => Box::new(Statement::Program(<>))
+}
