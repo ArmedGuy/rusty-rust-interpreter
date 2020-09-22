@@ -11,6 +11,40 @@ match {
     r"//[^\n\r]*" => { }, 
     // Skip `/* comments */`
     r"/\*([^\*]*\*+[^\*/])*([^\*]*\*+|[^\*])*\*/" => { },  
+    "i32",
+    "bool",
+    "{",
+    "}",
+    "()",
+    "(",
+    ")",
+    ";",
+    "-",
+    "+",
+    "*",
+    "/",
+    ",",
+    "!",
+    "&&",
+    "||",
+    "==",
+    "=",
+    "<",
+    ">",
+    ":",
+    r"[0-9]+",
+    r"([a-z_]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*",
+    "true",
+    "false",
+    "fn",
+    "while",
+    "if",
+    "else",
+    "else if",
+    "return",
+    "let",
+    "mut",
+    "->",
     _
 }
 
@@ -26,11 +60,7 @@ pub Bool: bool = {
 }
 
 Identifier: String = {
-    r"([a-zA-Z_][a-zA-Z0-9_]*)" => String::from_str(<>).unwrap(),
-};
-
-FuncIdentifier: String = {
-    r"([a-zA-Z_][a-zA-Z0-9_]*)\(" => String::from_str(<>).unwrap(),
+    r"([a-z_]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*" => String::from_str(<>).unwrap(),
 };
 
 
@@ -110,7 +140,8 @@ Comma<T>: Vec<T> = { // (1)
 };
 
 FuncExpr: Box<Expr> = {
-    <i:FuncIdentifier> <e:Exprs> ")" => Box::new(Expr::Function(i, e)),
+    <i:Identifier> "(" <e:Exprs> ")" => Box::new(Expr::Function(i, e)),
+    <i:Identifier> "()" => Box::new(Expr::Function(i, vec![])),
 };
 
 Type: Typedef = {
@@ -125,28 +156,32 @@ VarDef: Box<Statement> = {
 
 // Statement
 pub Statement: Box<Statement> = {
-    <i:IStatement> ";"* => i,
+    <i:IStatement> => i,
 };
-
 
 IStatement: Box<Statement> = {
-    FuncStatement,
-    DefineStatement,
-    AssignStatement,
-    ConditionalStatement,
-    LoopStatement,
-    Expr => Box::new(Statement::Expr(<>))
+    <FuncStatement> ";"?,
+    <DefineStatement> ";",
+    <AssignStatement> ";",
+    <ConditionalStatement> ";"?,
+    <LoopStatement> ";"?,
+    <e:Expr> ";" => Box::new(Statement::Expr(e))
 };
 
+ReturnStatement: Box<Statement> = {
+    "return" <e:Expr> ";"? => Box::new(Statement::Return(e)),
+    <e:Expr> => Box::new(Statement::Return(e))
+}
 
 FuncArgs = Comma<VarDef>;
 
-FuncStatement: Box<Statement> = {
-    "fn" <FuncIdentifier> <FuncArgs> ")" <("->" <Type>)?> <BlockStatement> => Box::new(Statement::Function(<>)) 
+pub FuncStatement: Box<Statement> = {
+    "fn" <Identifier> "(" <FuncArgs> ")" <("->" <Type>)?> <BlockStatement> => Box::new(Statement::Function(<>)),
+    "fn" <i:Identifier> "()" <t:("->" <Type>)?> <b:BlockStatement> => Box::new(Statement::Function(i, vec![], t, b)),
 };
 
 BlockStatement: Box<Statement> = {
-    "{" <s:Statement*> "}" => Box::new(Statement::Block(s)),
+    "{" <Statement*> <ReturnStatement?>"}" => Box::new(Statement::Block(<>)),
 };
 
 DefineStatement: Box<Statement> = {
