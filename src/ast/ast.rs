@@ -9,6 +9,8 @@ pub enum Expr {
     Function(String, Vec<Box<Expr>>),
     Op(Box<Expr>, Opcode, Box<Expr>),
     ModOp(Opcode, Box<Expr>),
+    BlockExpr(Box<Statement>),
+    ConditionalExpr(Box<Statement>),
     Error,
 }
 
@@ -23,6 +25,8 @@ impl Debug for Expr {
             Function(ref id, ref args) => write!(fmt, "{}({:?})", id, args),
             Op(ref l, op, ref r) => write!(fmt, "({:?} {:?} {:?})", l, op, r),
             ModOp(op, ref r) => write!(fmt, "{:?}{:?}", op, r),
+            BlockExpr(ref stmt) => write!(fmt, "{:?}", stmt),
+            ConditionalExpr(ref stmt) => write!(fmt, "{:?}", stmt),
             Error => write!(fmt, "error"),
         }
     }
@@ -114,14 +118,14 @@ impl Debug for Statement {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
         use self::Statement::*;
         match *self {
-            Expr(ref e) => write!(fmt, "{:?}", e),
+            Expr(ref e) => write!(fmt, "{:?};", e),
             VarDef(ref id, t) => write!(fmt, "{}: {:?}", id, t),
             Function(ref id, ref args, None, ref b) => write!(fmt, "fn {}({:?}) {:?}", id, args, b),
             Function(ref id, ref args, t, ref b) => write!(fmt, "fn {}({:?}) -> {:?} {:?}", id, args, t.unwrap(), b),
             Block(ref stmts, None) => write!(fmt, "{{\n{:?}\n}}", stmts),
             Block(ref stmts, ref ret) => write!(fmt, "{{\n{:?}\n{:?}\n}}", stmts, ret.as_ref().unwrap()),
-            Definition(ismut, ref vardef, ref e) => write!(fmt, "let{} {:?} = {:?})", if ismut { " mut" } else { "" }, vardef, e),
-            Assignment(ref id, ref e) => write!(fmt, "{} = {:?}", id, e),
+            Definition(ismut, ref vardef, ref e) => write!(fmt, "let{} {:?} = {:?});", if ismut { " mut" } else { "" }, vardef, e),
+            Assignment(ref id, ref e) => write!(fmt, "{} = {:?};", id, e),
             Conditional(t, None, ref bl, None) => write!(fmt, "{:?} {:?}", t, bl),
             Conditional(t, ref e, ref bl, None) => write!(fmt, "{:?} {:?} {:?}", t, e.as_ref().unwrap(), bl),
             Conditional(t, ref e, ref bl, ref n) => write!(fmt, "{:?} {:?} {:?} {:?}", t, e.as_ref().unwrap(), bl, n.as_ref().unwrap()),

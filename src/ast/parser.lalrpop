@@ -65,17 +65,16 @@ Identifier: String = {
 
 
 // Expression
-
+pub ExtendedExpr: Box<Expr> = {
+    Expr,
+    BlockStatement => Box::new(Expr::BlockExpr(<>)),
+    ConditionalStatement => Box::new(Expr::ConditionalExpr(<>)),
+};
 pub Expr: Box<Expr> = {
     //NumExpr,
     //BoolExpr,
     CalculatedExpr,
-    <ModExprOp> <CalculatedExpr> => Box::new(Expr::ModOp(<>)),
 };
-
-ModExprOp: Opcode = {
-    "!" => Opcode::Neg,
-}
 
 // calculated expressions
 CalculatedExpr: Box<Expr> = {
@@ -95,8 +94,14 @@ CalculatedTerm: Box<Expr> = {
     BoolTerm,
     NumTerm,
     Identifier => Box::new(Expr::Identifier(<>)),
+    <ModExprOp> <CalculatedTerm> => Box::new(Expr::ModOp(<>)),
     "(" <CalculatedExpr> ")",
 };
+
+ModExprOp: Opcode = {
+    "!" => Opcode::Neg,
+    "-" => Opcode::Sub,
+}
 
 ExprOp: Opcode = { // (3)
     "+" => Opcode::Add,
@@ -185,12 +190,12 @@ BlockStatement: Box<Statement> = {
 };
 
 DefineStatement: Box<Statement> = {
-    "let" "mut" <v:VarDef> "=" <e:Expr> => Box::new(Statement::Definition(true, v, e)),
-    "let" <v:VarDef> "=" <e:Expr> => Box::new(Statement::Definition(false, v, e)),
+    "let" "mut" <v:VarDef> "=" <e:ExtendedExpr> => Box::new(Statement::Definition(true, v, e)),
+    "let" <v:VarDef> "=" <e:ExtendedExpr> => Box::new(Statement::Definition(false, v, e)),
 };
 
 AssignStatement: Box<Statement> = {
-    <i:Identifier> "=" <e:Expr> => Box::new(Statement::Assignment(i, e)),
+    <i:Identifier> "=" <e:ExtendedExpr> => Box::new(Statement::Assignment(i, e)),
 };
 
 ConditionalStatement: Box<Statement> = {
