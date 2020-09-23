@@ -42,7 +42,7 @@ fn main() {
         // a function taking two bool arguments returning the i32 type
         // with some let statements and function calls
         fn b(x: bool, y: bool) -> i32 {
-            let a: bool = a(x, y || false);
+            let a: bool = a(4, y || false);
             let mut b: i32 = 0;
             if a && y {
                 let a: bool = true; // shadowing

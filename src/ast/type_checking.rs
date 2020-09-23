@@ -5,8 +5,14 @@ type Error = String;
 type Id = String;
 
 
+struct FuncSignature {
+    id: String,
+    args: Vec<ast::Typedef>,
+    ret: ast::Typedef,
+}
+
 pub struct Scope {
-    functable: HashMap<i32, HashMap<String, ast::Typedef>>,
+    functable: HashMap<i32, HashMap<String, FuncSignature>>,
     vartable: HashMap<i32, HashMap<String, ast::Typedef>>,
     scope: i32,
 }
@@ -30,9 +36,9 @@ impl Scope {
         self.scope -= 1;
     }
 
-    fn register_function(&mut self, id: &String, ret: ast::Typedef) {
+    fn register_function(&mut self, id: &String, args: Vec<ast::Typedef>, ret: ast::Typedef) {
         let scope = self.functable.get_mut(&self.scope).unwrap();
-        scope.insert(id.to_string(), ret);
+        scope.insert(id.to_string(), FuncSignature{id: id.to_string(), args: args, ret: ret });
     }
 
     fn register_variable(&mut self, id: &String, ret: ast::Typedef) {
@@ -52,16 +58,20 @@ impl Scope {
         Err(format!("Variable {} not found in scope.", id))
     }
 
-    fn get_fn(&mut self, id: &String) -> Result<ast::Typedef, Error> {
+    fn get_fn(&mut self, id: &String, args: Vec<ast::Typedef>) -> Result<ast::Typedef, Error> {
         let mut current = self.scope;
         while current >= 0 {
             let scope = self.functable.get(&current).unwrap();
             if scope.contains_key(id) {
-                return Ok(*scope.get(id).unwrap());
+                let sign = scope.get(id).unwrap();
+                let matching = args.iter().zip(sign.args.iter()).filter(|&(a, b)| a == b).count();
+                if matching == args.len() && matching == sign.args.len() {
+                    return Ok(sign.ret);
+                }
             }
             current -= 1;
         }
-        Err(format!("Function {} not found in scope.", id))
+        Err(format!("Function {}({:?}) not found in scope.", id, args))
     }
 }
 
@@ -133,7 +143,16 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
         },
         ast::Expr::Function(id, exprs) => {
             // TODO typecheck expressions
-            let r = scope.get_fn(&id);
+            let mut args = vec![];
+            for expr in exprs {
+                let r = expr_type_check(scope, expr);
+                if r.is_err() {
+                    return r;
+                } else {
+                    args.push(r.unwrap());
+                }
+            }
+            let r = scope.get_fn(&id, args);
             if r.is_err() {
                 Err(format!("{}", r.unwrap_err()))
             } else {
@@ -240,7 +259,15 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 statement_type_check(scope, statements)
             },
             ast::Statement::Function(id, vars, Some(ret), body) => {
-                scope.register_function(&id, ret);
+                let mut args = vec![];
+                for var in &vars {
+                    if let ast::Statement::VarDef(_, t) = **var {
+                        args.push(t);
+                    } else {
+                        
+                    }
+                }
+                scope.register_function(&id, args, ret);
                 scope.push();
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {
@@ -254,7 +281,15 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 ret
             },
             ast::Statement::Function(id, vars, None, body) => {
-                scope.register_function(&id, ast::Typedef::Unit);
+                let mut args = vec![];
+                for var in &vars {
+                    if let ast::Statement::VarDef(_, t) = **var {
+                        args.push(t);
+                    } else {
+                        
+                    }
+                }
+                scope.register_function(&id, args, ast::Typedef::Unit);
                 scope.push();
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {
@@ -270,7 +305,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
             ast::Statement::Expr(e) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression, error {:?}", r))
+                    Err(format!("Invalid expression, error {}", r.unwrap_err()))
                 } else {
                     Ok(ast::Typedef::Unit)
                 }
@@ -279,7 +314,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 if let ast::Statement::VarDef(id, def) = *vardef {
                     let r = expr_type_check(scope, e);
                     if r.is_err() {
-                        Err(format!("Invalid expression, error {:?}", r))
+                        Err(format!("Invalid expression, error {}", r.unwrap_err()))
                     } else {
                         let t = r.unwrap();
                         if def == t {
@@ -300,7 +335,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 } else {
                     let r2 = expr_type_check(scope, e);
                     if r2.is_err() {
-                        Err(format!("Invalid expression, error {:?}", r2))
+                        Err(format!("Invalid expression, error {}", r2.unwrap_err()))
                     } else {
                         Ok(ast::Typedef::Unit)
                     }
@@ -310,7 +345,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
             ast::Statement::WhileLoop(e, body) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in while, error {:?}", r))
+                    Err(format!("Invalid expression in while, error {}", r.unwrap_err()))
                 } else {
                     let t = r.unwrap();
                     if t != ast::Typedef::Bool {
@@ -333,7 +368,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
             ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, None) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in if, error {:?}", r))
+                    Err(format!("Invalid expression in if, error {}", r.unwrap_err()))
                 } else {
                     block_type_check(scope, body)
                 }
@@ -341,7 +376,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
             ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, Some(next)) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in if, error {:?}", r))
+                    Err(format!("Invalid expression in if, error {}", r.unwrap_err()))
                 } else {
                     let r2 = block_type_check(scope, body);
                     if r2.is_err() {
