@@ -52,8 +52,7 @@ fn main() {
     }";
     println!("{:?}", ProgramParser::new().parse(prg));
 
-    println!("{:?}", FuncStatementParser::new().parse("fn a(b: i32) { return false }"));
-    let test = ProgramParser::new().parse("fn a(b: i32) { return false }").unwrap();
+    let test = ProgramParser::new().parse("fn a(b: i32) -> bool { while (true) { 4 + 4; } return false }").unwrap();
     println!("statement_type_check {:?}", type_checking::statement_type_check(vec![test]));
 }
 

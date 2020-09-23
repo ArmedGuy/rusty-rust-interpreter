@@ -61,14 +61,18 @@ pub fn expr_type_check(expr: Box<ast::Expr>) -> Result<ast::Typedef, Error> {
     }
 }
 
-
-pub fn func_type_check(id: String, ret: ast::Typedef, body: Box<ast::Statement>) -> Result<Id, Error> {
-    let ret = match *body {
-        ast::Statement::Block(_, None) => {
-            if ret == ast::Typedef::Unit {
-                Ok("".to_string())
+pub fn block_type_check(ret: ast::Typedef, body: Box<ast::Statement>) -> Result<Id, Error> {
+    match *body {
+        ast::Statement::Block(stmts, None) => {
+            let chk = statement_type_check(stmts);
+            if chk.is_err() {
+                chk
             } else {
-                Err(format!("Incompatible return type {:?}, expected {:?}", ast::Typedef::Unit, ret))
+                if ret == ast::Typedef::Unit {
+                    Ok("".to_string())
+                } else {
+                    Err(format!("Incompatible return type {:?}, expected {:?}", ast::Typedef::Unit, ret))
+                }
             }
         },
         ast::Statement::Block(stmts, Some(ret2)) => {
@@ -94,15 +98,53 @@ pub fn func_type_check(id: String, ret: ast::Typedef, body: Box<ast::Statement>)
             }
         },
         _ => Err(format!("Unrecoverable error")),
-    };
+    }
+}
+
+pub fn func_type_check(id: String, ret: ast::Typedef, body: Box<ast::Statement>) -> Result<Id, Error> {
+    let ret = block_type_check(ret, body);
     if ret.is_err() {
         return Err(format!("{} in function {}", ret.unwrap_err(), id))
     }
     return Ok(id)
 }
 
-pub fn statement_type_check(stmts: Vec<Box<ast::Statement>>) -> Result<Id, Error> {
+fn cond_type_check(next: Box<ast::Statement>) -> Result<Id, Error> {
+    match *next {
+        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, None) => {
+            let r = expr_type_check(e);
+                if r.is_err() {
+                    Err(format!("Invalid expression in if, error {:?}", r))
+                } else {
+                    let r2 = block_type_check(ast::Typedef::Unit, body);
+                    if r2.is_err() {
+                        r2
+                    } else {
+                        Ok("".to_string())
+                    }
+                }
+        },
+        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, Some(next)) => {
+            let r = expr_type_check(e);
+            if r.is_err() {
+                Err(format!("Invalid expression in if, error {:?}", r))
+            } else {
+                let r2 = block_type_check(ast::Typedef::Unit, body);
+                if r2.is_err() {
+                    r2
+                } else {
+                    cond_type_check(next)
+                }
+            }
+        },
+        ast::Statement::Conditional(ast::ConditionalType::Else, None, body, None) => {
+            block_type_check(ast::Typedef::Unit, body)
+        },
+        _ => Err(format!("Unrecoverable error")),
+    }
+}
 
+pub fn statement_type_check(stmts: Vec<Box<ast::Statement>>) -> Result<Id, Error> {
     for stmt in stmts {
         let res: Result<Id, Error> = match *stmt {
             ast::Statement::Program(statements) => {
@@ -113,6 +155,68 @@ pub fn statement_type_check(stmts: Vec<Box<ast::Statement>>) -> Result<Id, Error
             },
             ast::Statement::Function(id, _, None, body) => {
                 func_type_check(id, ast::Typedef::Unit, body)
+            },
+            ast::Statement::Expr(e) => {
+                let r = expr_type_check(e);
+                if r.is_err() {
+                    Err(format!("Invalid expression, error {:?}", r))
+                } else {
+                    Ok("".to_string())
+                }
+            },
+            ast::Statement::Definition(_, vardef, e) => {
+                if let ast::Statement::VarDef(_, def) = *vardef {
+                    let r = expr_type_check(e);
+                    if r.is_err() {
+                        Err(format!("Invalid expression, error {:?}", r))
+                    } else {
+                        let t = r.unwrap();
+                        if def == t {
+                            Ok("".to_string())
+                        } else {
+                            Err(format!("Expression evaluated to {:?}, expected {:?}", t, def))
+                        }
+                    }
+                } else {
+                    Err(format!("Unrecoverable error"))
+                }
+            },
+            ast::Statement::Assignment(id, e) => {
+                Ok("".to_string()) // todo when lookup table
+            },
+            ast::Statement::WhileLoop(e, body) => {
+                let r = expr_type_check(e);
+                if r.is_err() {
+                    Err(format!("Invalid expression in while, error {:?}", r))
+                } else {
+                    let t = r.unwrap();
+                    if t != ast::Typedef::Bool {
+                        Err(format!("Expression evaluated to {:?}, expected bool", t))
+                    } else {
+                        block_type_check(ast::Typedef::Unit, body)
+                    }
+                }
+            },
+            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, None) => {
+                let r = expr_type_check(e);
+                if r.is_err() {
+                    Err(format!("Invalid expression in if, error {:?}", r))
+                } else {
+                    block_type_check(ast::Typedef::Unit, body)
+                }
+            },
+            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, Some(next)) => {
+                let r = expr_type_check(e);
+                if r.is_err() {
+                    Err(format!("Invalid expression in if, error {:?}", r))
+                } else {
+                    let r2 = block_type_check(ast::Typedef::Unit, body);
+                    if r2.is_err() {
+                        r2
+                    } else {
+                        cond_type_check(next)
+                    }
+                }
             },
             _ => Err(format!("Unrecoverable error")),
         };
