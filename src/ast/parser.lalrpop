@@ -32,8 +32,6 @@ match {
     "<",
     ">",
     ":",
-    r"[0-9]+",
-    r"([a-z_]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*",
     "true",
     "false",
     "fn",
@@ -44,6 +42,8 @@ match {
     "return",
     "let",
     "mut",
+    r"[0-9]+",
+    r"([a-z_]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*",
     "->",
     _
 }
@@ -67,8 +67,8 @@ Identifier: String = {
 // Expression
 pub ExtendedExpr: Box<Expr> = {
     Expr,
-    BlockStatement => Box::new(Expr::BlockExpr(<>)),
-    ConditionalStatement => Box::new(Expr::ConditionalExpr(<>)),
+    <l:@L> <s:BlockStatement> <r:@R> => Box::new(Expr::BlockExpr(s, CodeSpan::new(l, r))),
+    <l:@L> <s:ConditionalStatement> <r:@R> => Box::new(Expr::ConditionalExpr(s, CodeSpan::new(l, r))),
 };
 pub Expr: Box<Expr> = {
     //NumExpr,
@@ -78,14 +78,14 @@ pub Expr: Box<Expr> = {
 
 // calculated expressions
 CalculatedExpr: Box<Expr> = {
-    CalculatedExpr BoolExprOp CalculatedTerm => Box::new(Expr::Op(<>)),
-    CalculatedExpr BoolExprRetOp CalculatedTerm => Box::new(Expr::Op(<>)),
-    CalculatedExpr ExprOp CalculatedFactor => Box::new(Expr::Op(<>)),
+    <l:@L> <e1:CalculatedExpr> <op:BoolExprOp> <e2:CalculatedTerm> <r:@R> => Box::new(Expr::Op(e1, op, e2, CodeSpan::new(l, r))),
+    <l:@L> <e1:CalculatedExpr> <op:BoolExprRetOp> <e2:CalculatedTerm> <r:@R> => Box::new(Expr::Op(e1, op, e2, CodeSpan::new(l, r))),
+    <l:@L> <e1:CalculatedExpr> <op:ExprOp> <e2:CalculatedFactor> <r:@R> => Box::new(Expr::Op(e1, op, e2, CodeSpan::new(l, r))),
     CalculatedFactor,
 };
 
 CalculatedFactor: Box<Expr> = {
-    CalculatedFactor FactorOp CalculatedTerm => Box::new(Expr::Op(<>)),
+    <l:@L> <e1:CalculatedFactor> <op:FactorOp> <e2:CalculatedTerm> <r:@R> => Box::new(Expr::Op(e1, op, e2, CodeSpan::new(l, r))),
     CalculatedTerm
 };
 
@@ -93,8 +93,8 @@ CalculatedTerm: Box<Expr> = {
     FuncExpr,
     BoolTerm,
     NumTerm,
-    Identifier => Box::new(Expr::Identifier(<>)),
-    <ModExprOp> <CalculatedTerm> => Box::new(Expr::ModOp(<>)),
+    <l:@L> <i:Identifier> <r:@R> => Box::new(Expr::Identifier(i, CodeSpan::new(l, r))),
+    <l:@L> <op:ModExprOp> <t:CalculatedTerm> <r:@R> => Box::new(Expr::ModOp(op, t, CodeSpan::new(l, r))),
     "(" <CalculatedExpr> ")",
 };
 
@@ -145,8 +145,8 @@ Comma<T>: Vec<T> = { // (1)
 };
 
 FuncExpr: Box<Expr> = {
-    <i:Identifier> "(" <e:Exprs> ")" => Box::new(Expr::Function(i, e)),
-    <i:Identifier> "()" => Box::new(Expr::Function(i, vec![])),
+    <l:@L> <i:Identifier> "(" <e:Exprs> ")" <r:@R> => Box::new(Expr::Function(i, e, CodeSpan::new(l, r))),
+    <l:@L> <i:Identifier> "()" <r:@R> => Box::new(Expr::Function(i, vec![], CodeSpan::new(l, r))),
 };
 
 Type: Typedef = {
@@ -170,36 +170,36 @@ IStatement: Box<Statement> = {
     <AssignStatement> ";",
     <ConditionalStatement> ";"?,
     <LoopStatement> ";"?,
-    <e:Expr> ";" => Box::new(Statement::Expr(e))
+    <l:@L> <e:Expr> ";" <r:@R> => Box::new(Statement::Expr(e, CodeSpan::new(l, r)))
 };
 
 ReturnStatement: Box<Statement> = {
-    "return" <e:Expr> ";"? => Box::new(Statement::Return(e)),
-    <e:Expr> => Box::new(Statement::Return(e))
+    <l:@L> "return" <e:Expr> ";"? <r:@R> => Box::new(Statement::Return(e, CodeSpan::new(l, r))),
+    <l:@L> <e:Expr> <r:@R> => Box::new(Statement::Return(e, CodeSpan::new(l, r)))
 }
 
 FuncArgs = Comma<VarDef>;
 
 pub FuncStatement: Box<Statement> = {
-    "fn" <Identifier> "(" <FuncArgs> ")" <("->" <Type>)?> <BlockStatement> => Box::new(Statement::Function(<>)),
-    "fn" <i:Identifier> "()" <t:("->" <Type>)?> <b:BlockStatement> => Box::new(Statement::Function(i, vec![], t, b)),
+    <l:@L> "fn" <i:Identifier> "(" <f:FuncArgs> ")" <t:("->" <Type>)?> <r:@R> <b:BlockStatement> => Box::new(Statement::Function(i, f, t, b, CodeSpan::new(l, r))),
+    <l:@L> "fn" <i:Identifier> "()" <t:("->" <Type>)?> <r:@R> <b:BlockStatement> => Box::new(Statement::Function(i, vec![], t, b, CodeSpan::new(l, r))),
 };
 
 BlockStatement: Box<Statement> = {
-    "{" <Statement*> <ReturnStatement?>"}" => Box::new(Statement::Block(<>)),
+    "{" <l:@L> <s:Statement*> <r:@R> <ret:ReturnStatement?>"}" => Box::new(Statement::Block(s, ret, CodeSpan::new(l, r))),
 };
 
 DefineStatement: Box<Statement> = {
-    "let" "mut" <v:VarDef> "=" <e:ExtendedExpr> => Box::new(Statement::Definition(true, v, e)),
-    "let" <v:VarDef> "=" <e:ExtendedExpr> => Box::new(Statement::Definition(false, v, e)),
+    <l:@L> "let" <m:"mut"?> <v:VarDef> "=" <r:@R> <e:ExtendedExpr> => Box::new(Statement::Definition(m.is_some(), v, e, CodeSpan::new(l, r))),
+    <l:@L> "let" <m:"mut"?> <i:Identifier> "=" <r:@R> <e:ExtendedExpr> => Box::new(Statement::Definition(m.is_some(), Box::new(Statement::VarDef(i, Typedef::Implicit)), e, CodeSpan::new(l, r))),
 };
 
 AssignStatement: Box<Statement> = {
-    <i:Identifier> "=" <e:ExtendedExpr> => Box::new(Statement::Assignment(i, e)),
+    <l:@L> <i:Identifier> "=" <r:@R> <e:ExtendedExpr> => Box::new(Statement::Assignment(i, e, CodeSpan::new(l, r))),
 };
 
 ConditionalStatement: Box<Statement> = {
-    "if" <e:Expr> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::If, Some(e), b, next))
+    <l:@L> "if" <e:Expr> <r:@R> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::If, Some(e), b, next, CodeSpan::new(l, r)))
 };
 
 NextConditionalStatement: Box<Statement> = {
@@ -208,17 +208,17 @@ NextConditionalStatement: Box<Statement> = {
 };
 
 ElseIfStatement: Box<Statement> = {
-    "else if" <e:Expr> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::ElseIf, Some(e), b, next))
+    <l:@L> "else if" <e:Expr> <r:@R> <b:BlockStatement> <next:NextConditionalStatement?> => Box::new(Statement::Conditional(ConditionalType::ElseIf, Some(e), b, next, CodeSpan::new(l, r)))
 };
 
 ElseStatement: Box<Statement> = {
-    "else" <b:BlockStatement> => Box::new(Statement::Conditional(ConditionalType::Else, None, b, None))
+    <l:@L> "else" <r:@R> <b:BlockStatement> => Box::new(Statement::Conditional(ConditionalType::Else, None, b, None, CodeSpan::new(l, r)))
 };
 
 LoopStatement: Box<Statement> = {
-    "while" "(" <e:Expr> ")" <b:BlockStatement> => Box::new(Statement::WhileLoop(e, b))
+    <l:@L> "while" "(" <e:Expr> ")" <r:@R> <b:BlockStatement> => Box::new(Statement::WhileLoop(e, b, CodeSpan::new(l, r)))
 };
 
 pub Program: Box<Statement> = {
-    Statement+ => Box::new(Statement::Program(<>))
+    <l:@L> <s:Statement+> <r:@R> => Box::new(Statement::Program(s, CodeSpan::new(l, r)))
 }

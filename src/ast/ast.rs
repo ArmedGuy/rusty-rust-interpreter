@@ -5,28 +5,37 @@ use std::fmt::{Debug, Error, Formatter};
 pub enum Expr {
     Number(i32),
     Boolean(bool),
-    Identifier(String),
-    Function(String, Vec<Box<Expr>>),
-    Op(Box<Expr>, Opcode, Box<Expr>),
-    ModOp(Opcode, Box<Expr>),
-    BlockExpr(Box<Statement>),
-    ConditionalExpr(Box<Statement>),
+    Identifier(String, CodeSpan),
+    Function(String, Vec<Box<Expr>>, CodeSpan),
+    Op(Box<Expr>, Opcode, Box<Expr>, CodeSpan),
+    ModOp(Opcode, Box<Expr>, CodeSpan),
+    BlockExpr(Box<Statement>, CodeSpan),
+    ConditionalExpr(Box<Statement>, CodeSpan),
     Error,
 }
 
+pub struct CodeSpan {
+    pub l: usize,
+    pub r: usize,
+}
 
+impl CodeSpan {
+    pub fn new(l: usize, r: usize) -> CodeSpan {
+        CodeSpan { l: l, r: r }
+    }
+}
 impl Debug for Expr {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
         use self::Expr::*;
         match *self {
             Number(n) => write!(fmt, "{:?}", n),
             Boolean(b) => write!(fmt, "{:?}", b),
-            Identifier(ref id) => write!(fmt, "{}", id),
-            Function(ref id, ref args) => write!(fmt, "{}({:?})", id, args),
-            Op(ref l, op, ref r) => write!(fmt, "({:?} {:?} {:?})", l, op, r),
-            ModOp(op, ref r) => write!(fmt, "{:?}{:?}", op, r),
-            BlockExpr(ref stmt) => write!(fmt, "{:?}", stmt),
-            ConditionalExpr(ref stmt) => write!(fmt, "{:?}", stmt),
+            Identifier(ref id, _) => write!(fmt, "{}", id),
+            Function(ref id, ref args, _) => write!(fmt, "{}({:?})", id, args),
+            Op(ref l, op, ref r, _) => write!(fmt, "({:?} {:?} {:?})", l, op, r),
+            ModOp(op, ref r, _) => write!(fmt, "{:?}{:?}", op, r),
+            BlockExpr(ref stmt, _) => write!(fmt, "{:?}", stmt),
+            ConditionalExpr(ref stmt, _) => write!(fmt, "{:?}", stmt),
             Error => write!(fmt, "error"),
         }
     }
@@ -66,6 +75,7 @@ impl Debug for Opcode {
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Typedef {
+    Implicit,
     Unit,
     Bool,
     I32,
@@ -78,6 +88,7 @@ impl Debug for Typedef {
             Unit => write!(fmt, "()"),
             Bool => write!(fmt, "bool"),
             I32 => write!(fmt, "i32"),
+            Implicit => write!(fmt, "implicit"),
         }
     }
 }
@@ -101,16 +112,16 @@ impl Debug for ConditionalType {
 }
 
 pub enum Statement {
-    Expr(Box<Expr>),
+    Expr(Box<Expr>, CodeSpan),
     VarDef(String, Typedef),
-    Function(String, Vec<Box<Statement>>, Option<Typedef>, Box<Statement>),
-    Block(Vec<Box<Statement>>, Option<Box<Statement>>),
-    Definition(bool, Box<Statement>, Box<Expr>),
-    Assignment(String, Box<Expr>),
-    Conditional(ConditionalType, Option<Box<Expr>>, Box<Statement>, Option<Box<Statement>>),
-    WhileLoop(Box<Expr>, Box<Statement>),
-    Return(Box<Expr>),
-    Program(Vec<Box<Statement>>),
+    Function(String, Vec<Box<Statement>>, Option<Typedef>, Box<Statement>, CodeSpan),
+    Block(Vec<Box<Statement>>, Option<Box<Statement>>, CodeSpan),
+    Definition(bool, Box<Statement>, Box<Expr>, CodeSpan),
+    Assignment(String, Box<Expr>, CodeSpan),
+    Conditional(ConditionalType, Option<Box<Expr>>, Box<Statement>, Option<Box<Statement>>, CodeSpan),
+    WhileLoop(Box<Expr>, Box<Statement>, CodeSpan),
+    Return(Box<Expr>, CodeSpan),
+    Program(Vec<Box<Statement>>, CodeSpan),
     Error
 }
 
@@ -118,20 +129,20 @@ impl Debug for Statement {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
         use self::Statement::*;
         match *self {
-            Expr(ref e) => write!(fmt, "{:?};", e),
+            Expr(ref e, _) => write!(fmt, "{:?};", e),
             VarDef(ref id, t) => write!(fmt, "{}: {:?}", id, t),
-            Function(ref id, ref args, None, ref b) => write!(fmt, "fn {}({:?}) {:?}", id, args, b),
-            Function(ref id, ref args, t, ref b) => write!(fmt, "fn {}({:?}) -> {:?} {:?}", id, args, t.unwrap(), b),
-            Block(ref stmts, None) => write!(fmt, "{{\n{:?}\n}}", stmts),
-            Block(ref stmts, ref ret) => write!(fmt, "{{\n{:?}\n{:?}\n}}", stmts, ret.as_ref().unwrap()),
-            Definition(ismut, ref vardef, ref e) => write!(fmt, "let{} {:?} = {:?});", if ismut { " mut" } else { "" }, vardef, e),
-            Assignment(ref id, ref e) => write!(fmt, "{} = {:?};", id, e),
-            Conditional(t, None, ref bl, None) => write!(fmt, "{:?} {:?}", t, bl),
-            Conditional(t, ref e, ref bl, None) => write!(fmt, "{:?} {:?} {:?}", t, e.as_ref().unwrap(), bl),
-            Conditional(t, ref e, ref bl, ref n) => write!(fmt, "{:?} {:?} {:?} {:?}", t, e.as_ref().unwrap(), bl, n.as_ref().unwrap()),
-            WhileLoop(ref e, ref bl) => write!(fmt, "while ({:?}) {:?}", e, bl),
-            Return(ref e) => write!(fmt, "return {:?}", e),
-            Program(ref prg) => write!(fmt, "{:?}", prg),
+            Function(ref id, ref args, None, ref b, _) => write!(fmt, "fn {}({:?}) {:?}", id, args, b),
+            Function(ref id, ref args, t, ref b, _) => write!(fmt, "fn {}({:?}) -> {:?} {:?}", id, args, t.unwrap(), b),
+            Block(ref stmts, None, _) => write!(fmt, "{{\n{:?}\n}}", stmts),
+            Block(ref stmts, ref ret, _) => write!(fmt, "{{\n{:?}\n{:?}\n}}", stmts, ret.as_ref().unwrap()),
+            Definition(ismut, ref vardef, ref e, _) => write!(fmt, "let{} {:?} = {:?});", if ismut { " mut" } else { "" }, vardef, e),
+            Assignment(ref id, ref e, _) => write!(fmt, "{} = {:?};", id, e),
+            Conditional(t, None, ref bl, None, _) => write!(fmt, "{:?} {:?}", t, bl),
+            Conditional(t, ref e, ref bl, None, _) => write!(fmt, "{:?} {:?} {:?}", t, e.as_ref().unwrap(), bl),
+            Conditional(t, ref e, ref bl, ref n, _) => write!(fmt, "{:?} {:?} {:?} {:?}", t, e.as_ref().unwrap(), bl, n.as_ref().unwrap()),
+            WhileLoop(ref e, ref bl, _) => write!(fmt, "while ({:?}) {:?}", e, bl),
+            Return(ref e, _) => write!(fmt, "return {:?}", e),
+            Program(ref prg, _) => write!(fmt, "{:?}", prg),
             Error => write!(fmt, "error")
         }
     }

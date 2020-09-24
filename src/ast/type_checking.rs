@@ -2,11 +2,9 @@ use crate::ast;
 use std::collections::HashMap;
 
 type Error = String;
-type Id = String;
 
 
 struct FuncSignature {
-    id: String,
     args: Vec<ast::Typedef>,
     ret: ast::Typedef,
 }
@@ -15,11 +13,12 @@ pub struct Scope {
     functable: HashMap<i32, HashMap<String, FuncSignature>>,
     vartable: HashMap<i32, HashMap<String, ast::Typedef>>,
     scope: i32,
+    source: String,
 }
 
 impl Scope {
-    pub fn new() -> Scope {
-        let mut s = Scope {functable: HashMap::new(), vartable: HashMap::new(), scope: 0 };
+    pub fn new(source: String) -> Scope {
+        let mut s = Scope {functable: HashMap::new(), vartable: HashMap::new(), scope: 0, source: source };
         s.functable.insert(0, HashMap::new());
         s.vartable.insert(0, HashMap::new());
         s
@@ -38,7 +37,7 @@ impl Scope {
 
     fn register_function(&mut self, id: &String, args: Vec<ast::Typedef>, ret: ast::Typedef) {
         let scope = self.functable.get_mut(&self.scope).unwrap();
-        scope.insert(id.to_string(), FuncSignature{id: id.to_string(), args: args, ret: ret });
+        scope.insert(id.to_string(), FuncSignature{args: args, ret: ret });
     }
 
     fn register_variable(&mut self, id: &String, ret: ast::Typedef) {
@@ -55,7 +54,7 @@ impl Scope {
             }
             current -= 1;
         }
-        Err(format!("Variable {} not found in scope.", id))
+        Err(format!("variable {} not found in scope", id))
     }
 
     fn get_fn(&mut self, id: &String, args: Vec<ast::Typedef>) -> Result<ast::Typedef, Error> {
@@ -71,7 +70,53 @@ impl Scope {
             }
             current -= 1;
         }
-        Err(format!("Function {}({:?}) not found in scope.", id, args))
+        Err(format!("function {}({:?}) not found in scope", id, args))
+    }
+
+    fn format_error(&self, err: String, span: ast::CodeSpan) -> Result<ast::Typedef, Error> {
+        let mut len = 0;
+        let starts = self.source.to_string().into_bytes().into_iter()
+            .inspect(|_| len+=1)
+            .enumerate()
+            .filter(|&(_, b)| b == b'\n')
+            .map(|(i, _)| i+1);
+        
+        let mut last = 0;
+        for (line, start) in starts.enumerate() {
+            // line starts at 0, so using "next" line is perfectly fine
+            if span.l < start {
+                let column = span.l - last;
+                let src = &self.source[last..start-1];
+                let bad_part_pointer = format!("{}{}", " ".repeat(column), "^".repeat(span.r - last - column));
+                return Err(format!(" - On line {}:{}\n{}\n{} {}\n", line, column, src, bad_part_pointer, err))
+            }
+            last = start
+        }
+        Err(format!("Could not locate source position for error"))
+    }
+
+    fn format_function_if_err(&self, res: Result<ast::Typedef, Error>, span: ast::CodeSpan) -> Result<ast::Typedef, Error> {
+        if res.is_ok() {
+            return res
+        }
+        let mut len = 0;
+        let starts = self.source.to_string().into_bytes().into_iter()
+            .inspect(|_| len+=1)
+            .enumerate()
+            .filter(|&(_, b)| b == b'\n')
+            .map(|(i, _)| i+1);
+        
+        let mut last = 0;
+        for (line, start) in starts.enumerate() {
+            // line starts at 0, so using "next" line is perfectly fine
+            if span.l < start {
+                let column = span.l - last;
+                let src = &self.source[last..start-1];
+                return Err(format!(" | In function on line {}:{}\n | {}\n | \n{}", line, column, src, res.unwrap_err()))
+            }
+            last = start
+        }
+        Err(format!("Could not locate source position for error"))
     }
 }
 
@@ -80,7 +125,7 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
     match *expr {
         ast::Expr::Boolean(_) => Ok(ast::Typedef::Bool),
         ast::Expr::Number(_) => Ok(ast::Typedef::I32),
-        ast::Expr::Op(e1, op, e2) => {
+        ast::Expr::Op(e1, op, e2, span) => {
             let r1 = expr_type_check(scope, e1);
             let r2 = expr_type_check(scope, e2);
             if r1.is_err() {
@@ -96,30 +141,30 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
                     if t1 == ast::Typedef::I32 && t2 == ast::Typedef::I32 {
                         return Ok(ast::Typedef::I32)
                     }
-                    return Err(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2))
+                    return scope.format_error(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2), span)
                 },
                 ast::Opcode::GreaterThen | ast::Opcode::LessThen => {
                     if t1 == ast::Typedef::I32 && t2 == ast::Typedef::I32 {
                         return Ok(ast::Typedef::Bool)
                     }
-                    return Err(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2))
+                    return scope.format_error(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2), span)
                 },
                 ast::Opcode::Is => {
                     if t1 == t2 {
                         return Ok(ast::Typedef::Bool)
                     }
-                    return Err(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2))
+                    return scope.format_error(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2), span)
                 },
                 ast::Opcode::And | ast::Opcode::Or =>{
                     if t1 == ast::Typedef::Bool && t2 == ast::Typedef::Bool {
                         return Ok(ast::Typedef::Bool)
                     }
-                    return Err(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2))
+                    return scope.format_error(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2), span)
                 },
                 _ => Err("swag".to_string())
             }
         },
-        ast::Expr::ModOp(ast::Opcode::Neg, e) => {
+        ast::Expr::ModOp(ast::Opcode::Neg, e, span) => {
             let r1 = expr_type_check(scope, e);
             if r1.is_err() {
                 return r1;
@@ -128,9 +173,9 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
             if t1 == ast::Typedef::Bool {
                 return Ok(ast::Typedef::Bool)
             }
-            return Err(format!("{:?} does not support negation", t1))
+            return scope.format_error(format!("{:?} does not support negation", t1), span)
         },
-        ast::Expr::ModOp(ast::Opcode::Sub, e) => {
+        ast::Expr::ModOp(ast::Opcode::Sub, e, span) => {
             let r1 = expr_type_check(scope, e);
             if r1.is_err() {
                 return r1;
@@ -139,9 +184,9 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
             if t1 == ast::Typedef::I32 {
                 return Ok(ast::Typedef::I32)
             }
-            return Err(format!("{:?} does not support sign inversion", t1))
+            return scope.format_error(format!("{:?} does not support sign inversion", t1), span)
         },
-        ast::Expr::Function(id, exprs) => {
+        ast::Expr::Function(id, exprs, span) => {
             // TODO typecheck expressions
             let mut args = vec![];
             for expr in exprs {
@@ -154,55 +199,58 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
             }
             let r = scope.get_fn(&id, args);
             if r.is_err() {
-                Err(format!("{}", r.unwrap_err()))
+                scope.format_error(format!("{}", r.unwrap_err()), span)
             } else {
                 Ok(r.unwrap())
             }
         },
-        ast::Expr::Identifier(id) => {
+        ast::Expr::Identifier(id, span) => {
             let r = scope.get_var(&id);
             if r.is_err() {
-                Err(format!("{}", r.unwrap_err()))
+                scope.format_error(format!("{}", r.unwrap_err()), span)
             } else {
                 Ok(r.unwrap())
             }
         },
+        ast::Expr::ConditionalExpr(stmt, _) => {
+            statement_type_check(scope, vec![stmt])
+        }
         _ => Err(format!("Unrecognized expression {:?}", *expr)),
     }
 }
 
-pub fn block_type_check(scope: &mut Scope, body: Box<ast::Statement>) -> Result<ast::Typedef, Error> {
+pub fn block_type_check(scope: &mut Scope, body: Box<ast::Statement>) -> (Result<ast::Typedef, Error>, ast::CodeSpan) {
     scope.push();
     let ret = match *body {
-        ast::Statement::Block(stmts, None) => {
-            statement_type_check(scope, stmts)
+        ast::Statement::Block(stmts, None, span) => {
+            (statement_type_check(scope, stmts), span)
         },
-        ast::Statement::Block(stmts, Some(ret2)) => {
+        ast::Statement::Block(stmts, Some(ret2), span) => {
             let chk = statement_type_check(scope, stmts);
             if chk.is_err() {
-                chk
+                (chk, span)
             } else {
-                if let ast::Statement::Return(e) = *ret2 {
-                    expr_type_check(scope, e)
+                if let ast::Statement::Return(e, inner_span) = *ret2 {
+                    (expr_type_check(scope, e), inner_span)
                 } else {
-                    Err(format!("Unrecoverable error"))
+                    (Err(format!("Unrecoverable error")), span)
                 }
             }
         },
-        _ => Err(format!("Unrecoverable error")),
+        _ => (Err(format!("Unrecoverable error")), ast::CodeSpan::new(0, 0)),
     };
     scope.pop();
     ret
 }
 
-pub fn func_type_check(scope: &mut Scope, id: &String, ret: ast::Typedef, body: Box<ast::Statement>) -> Result<ast::Typedef, Error> {
-    let bret = block_type_check(scope, body);
+pub fn func_type_check(scope: &mut Scope, ret: ast::Typedef, body: Box<ast::Statement>) -> Result<ast::Typedef, Error> {
+    let (bret, span) = block_type_check(scope, body);
     if bret.is_err() {
-        return Err(format!("{} in function {}", bret.unwrap_err(), id))
+        return bret
     } else {
         let r = bret.unwrap();
         if r != ret {
-            return Err(format!("Invalid return type {:?}, expected {:?}", r, ret))
+            return scope.format_error(format!("Invalid return type {:?}, expected {:?}", r, ret), span)
         }
     }
     return Ok(ast::Typedef::Unit)
@@ -210,20 +258,20 @@ pub fn func_type_check(scope: &mut Scope, id: &String, ret: ast::Typedef, body: 
 
 fn cond_type_check(scope: &mut Scope, next: Box<ast::Statement>) -> Result<ast::Typedef, Error> {
     match *next {
-        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, None) => {
+        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, None, _) => {
             let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in if, error {:?}", r))
+                    r
                 } else {
-                    block_type_check(scope, body)
+                    block_type_check(scope, body).0
                 }
         },
-        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, Some(next)) => {
+        ast::Statement::Conditional(ast::ConditionalType::ElseIf, Some(e), body, Some(next), _) => {
             let r = expr_type_check(scope, e);
             if r.is_err() {
-                Err(format!("Invalid expression in if, error {:?}", r))
+                r
             } else {
-                let r2 = block_type_check(scope, body);
+                let (r2, inner_span) = block_type_check(scope, body);
                 if r2.is_err() {
                     r2
                 } else {
@@ -234,7 +282,7 @@ fn cond_type_check(scope: &mut Scope, next: Box<ast::Statement>) -> Result<ast::
                         let t2 = r2.unwrap();
                         let t3 = r3.unwrap();
                         if t2 != t3 {
-                            Err(format!("Mismatching return type in conditional, expected {:?}, got {:?}", t2, t3))
+                            scope.format_error(format!("Mismatching return type in conditional, expected {:?}, got {:?}", t3, t2), inner_span)
                         } else {
                             Ok(t3)
                         }
@@ -242,8 +290,8 @@ fn cond_type_check(scope: &mut Scope, next: Box<ast::Statement>) -> Result<ast::
                 }
             }
         },
-        ast::Statement::Conditional(ast::ConditionalType::Else, None, body, None) => {
-            block_type_check(scope, body)
+        ast::Statement::Conditional(ast::ConditionalType::Else, None, body, None, _) => {
+            block_type_check(scope, body).0
         },
         _ => Err(format!("Unrecoverable error")),
     }
@@ -255,10 +303,10 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
     for stmt in stmts {
         let is_last = i == stmt_len;
         let res: Result<ast::Typedef, Error> = match *stmt {
-            ast::Statement::Program(statements) => {
+            ast::Statement::Program(statements, _) => {
                 statement_type_check(scope, statements)
             },
-            ast::Statement::Function(id, vars, Some(ret), body) => {
+            ast::Statement::Function(id, vars, Some(ret), body, span) => {
                 let mut args = vec![];
                 for var in &vars {
                     if let ast::Statement::VarDef(_, t) = **var {
@@ -276,11 +324,11 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
 
                     }
                 }
-                let ret = func_type_check(scope, &id, ret, body);
+                let ret = func_type_check(scope, ret, body);
                 scope.pop();
-                ret
+                scope.format_function_if_err(ret, span)
             },
-            ast::Statement::Function(id, vars, None, body) => {
+            ast::Statement::Function(id, vars, None, body, span) => {
                 let mut args = vec![];
                 for var in &vars {
                     if let ast::Statement::VarDef(_, t) = **var {
@@ -298,66 +346,66 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
 
                     }
                 }
-                let ret = func_type_check(scope, &id, ast::Typedef::Unit, body);
+                let ret = func_type_check(scope, ast::Typedef::Unit, body);
                 scope.pop();
-                ret
+                scope.format_function_if_err(ret, span)
             },
-            ast::Statement::Expr(e) => {
+            ast::Statement::Expr(e, _) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression, error {}", r.unwrap_err()))
+                    r
                 } else {
                     Ok(ast::Typedef::Unit)
                 }
             },
-            ast::Statement::Definition(_, vardef, e) => {
+            ast::Statement::Definition(_, vardef, e, span) => {
                 if let ast::Statement::VarDef(id, def) = *vardef {
                     let r = expr_type_check(scope, e);
                     if r.is_err() {
-                        Err(format!("Invalid expression, error {}", r.unwrap_err()))
+                        r
                     } else {
                         let t = r.unwrap();
-                        if def == t {
-                            scope.register_variable(&id, def);
+                        if def == t || def == ast::Typedef::Implicit {
+                            scope.register_variable(&id, t);
                             Ok(ast::Typedef::Unit)
                         } else {
-                            Err(format!("Expression evaluated to {:?}, expected {:?}", t, def))
+                            scope.format_error(format!("Expression evaluated to {:?}, expected {:?}", t, def), span)
                         }
                     }
                 } else {
                     Err(format!("Unrecoverable error"))
                 }
             },
-            ast::Statement::Assignment(id, e) => {
+            ast::Statement::Assignment(id, e, span) => {
                 let r1 = scope.get_var(&id);
                 if r1.is_err() {
-                    Err(format!("{}", r1.unwrap_err()))
+                    scope.format_error(format!("{}", r1.unwrap_err()), span)
                 } else {
                     let r2 = expr_type_check(scope, e);
                     if r2.is_err() {
-                        Err(format!("Invalid expression, error {}", r2.unwrap_err()))
+                       r2
                     } else {
                         Ok(ast::Typedef::Unit)
                     }
                 }
                 //Ok("".to_string()) // todo when lookup table
             },
-            ast::Statement::WhileLoop(e, body) => {
+            ast::Statement::WhileLoop(e, body, span) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in while, error {}", r.unwrap_err()))
+                    r
                 } else {
                     let t = r.unwrap();
                     if t != ast::Typedef::Bool {
-                        Err(format!("Expression evaluated to {:?}, expected bool", t))
+                        scope.format_error(format!("Expression evaluated to {:?}, expected bool", t), span)
                     } else {
-                        let r2 = block_type_check(scope, body);
+                        let r2 = block_type_check(scope, body).0;
                         if r2.is_err() {
                             r2
                         } else {
                             let t2 = r2.unwrap();
                             if t2 != ast::Typedef::Unit {
-                                Err(format!("Expected {:?} from while, got {:?}", ast::Typedef::Unit, t2))
+                                scope.format_error(format!("Expected {:?} from while, got {:?}", ast::Typedef::Unit, t2), span)
                             } else {
                                 Ok(ast::Typedef::Unit)
                             }
@@ -365,20 +413,20 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                     }
                 }
             },
-            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, None) => {
+            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, None, _) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in if, error {}", r.unwrap_err()))
+                    r
                 } else {
-                    block_type_check(scope, body)
+                    block_type_check(scope, body).0
                 }
             },
-            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, Some(next)) => {
+            ast::Statement::Conditional(ast::ConditionalType::If, Some(e), body, Some(next), _) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
-                    Err(format!("Invalid expression in if, error {}", r.unwrap_err()))
+                    r
                 } else {
-                    let r2 = block_type_check(scope, body);
+                    let (r2, inner_span) = block_type_check(scope, body);
                     if r2.is_err() {
                         r2
                     } else {
@@ -389,7 +437,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                             let t2 = r2.unwrap();
                             let t3 = r3.unwrap();
                             if t2 != t3 {
-                                Err(format!("Mismatching return type in conditional, expected {:?}, got {:?}", t2, t3))
+                                scope.format_error(format!("Mismatching return type in conditional, expected {:?}, got {:?}", t3, t2), inner_span)
                             } else {
                                 Ok(t3)
                             }

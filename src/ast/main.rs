@@ -42,7 +42,7 @@ fn main() {
         // a function taking two bool arguments returning the i32 type
         // with some let statements and function calls
         fn b(x: bool, y: bool) -> i32 {
-            let a: bool = a(4, y || false);
+            let a: bool = a(x, y || false);
             let mut b: i32 = 0;
             if a && y {
                 let a: bool = true; // shadowing
@@ -70,9 +70,15 @@ fn main() {
     }";
 
     let test = ProgramParser::new().parse(prg).unwrap();
-    println!("{:?}", test);
-    let mut scope = type_checking::Scope::new();
-    println!("statement_type_check {:?}", type_checking::statement_type_check(&mut scope, vec![test]));
+    //println!("{:?}", test);
+    let mut scope = type_checking::Scope::new(prg.to_string());
+    let result  = type_checking::statement_type_check(&mut scope, vec![test]);
+    if result.is_err() {
+        println!("{}", result.unwrap_err());
+    } else {
+        println!("statement_type_check Ok");
+    }
+   
 }
 
 
