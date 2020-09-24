@@ -186,7 +186,7 @@ pub FuncStatement: Box<Statement> = {
 };
 
 BlockStatement: Box<Statement> = {
-    "{" <l:@L> <s:Statement*> <r:@R> <ret:ReturnStatement?>"}" => Box::new(Statement::Block(s, ret, CodeSpan::new(l, r))),
+    <l:@L> "{" <r:@R> <s:Statement*> <ret:ReturnStatement?>"}" => Box::new(Statement::Block(s, ret, CodeSpan::new(l, r))),
 };
 
 DefineStatement: Box<Statement> = {
