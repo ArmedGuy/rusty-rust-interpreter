@@ -6,6 +6,7 @@ use parser::*;
 
 pub mod ast;
 pub mod type_checking;
+pub mod inderpaderper;
 
 fn main() {
     let prg = "fn _let_and_return() {
@@ -78,6 +79,8 @@ fn main() {
     } else {
         println!("statement_type_check Ok");
     }
+
+    inderpaderper::prompt();
    
 }
 

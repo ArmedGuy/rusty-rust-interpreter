@@ -88,7 +88,7 @@ impl Scope {
                 let column = span.l - last;
                 let src = &self.source[last..start-1];
                 let bad_part_pointer = format!("{}{}", " ".repeat(column), "^".repeat(span.r - last - column));
-                return Err(format!(" - On line {}:{}\n{}\n{} {}\n", line, column, src, bad_part_pointer, err))
+                return Err(format!(" - On line {}:{}\n{}\n{} {}\n", line, column + 1, src, bad_part_pointer, err))
             }
             last = start
         }
@@ -110,9 +110,8 @@ impl Scope {
         for (line, start) in starts.enumerate() {
             // line starts at 0, so using "next" line is perfectly fine
             if span.l < start {
-                let column = span.l - last;
                 let src = &self.source[last..start-1];
-                return Err(format!(" | In function on line {}:{}\n | {}\n | \n{}", line, column, src, res.unwrap_err()))
+                return Err(format!(" | In function on line {}\n | {}\n | \n{}", line, src, res.unwrap_err()))
             }
             last = start
         }
