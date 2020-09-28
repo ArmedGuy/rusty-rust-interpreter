@@ -299,22 +299,35 @@ fn cond_type_check(scope: &mut Scope, next: Box<ast::Statement>) -> Result<ast::
 pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) -> Result<ast::Typedef, Error> {
     let stmt_len = stmts.len();
     let mut i = 1;
+    let mut unboxed = vec![];
     for stmt in stmts {
+        unboxed.push(*stmt);
+    }
+    // Breadth first, find all functions and register their signatures
+    for stmt in &unboxed {
+        if let ast::Statement::Function(id, vars, ret, _, _) = stmt {
+            let mut args = vec![];
+            for var in vars {
+                if let ast::Statement::VarDef(_, t) = **var {
+                    args.push(t);
+                } else {
+                    
+                }
+            }
+            let ret = if ret.is_some() { ret.unwrap() } else { ast::Typedef::Unit };
+            scope.register_function(&id, args, ret);
+        } else {
+
+        }
+    }
+    // Depth first, all functions in current scope registered
+    for stmt in unboxed {
         let is_last = i == stmt_len;
-        let res: Result<ast::Typedef, Error> = match *stmt {
+        let res: Result<ast::Typedef, Error> = match stmt {
             ast::Statement::Program(statements, _) => {
                 statement_type_check(scope, statements)
             },
-            ast::Statement::Function(id, vars, Some(ret), body, span) => {
-                let mut args = vec![];
-                for var in &vars {
-                    if let ast::Statement::VarDef(_, t) = **var {
-                        args.push(t);
-                    } else {
-                        
-                    }
-                }
-                scope.register_function(&id, args, ret);
+            ast::Statement::Function(_, vars, Some(ret), body, span) => {
                 scope.push();
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {
@@ -327,16 +340,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 scope.pop();
                 scope.format_function_if_err(ret, span)
             },
-            ast::Statement::Function(id, vars, None, body, span) => {
-                let mut args = vec![];
-                for var in &vars {
-                    if let ast::Statement::VarDef(_, t) = **var {
-                        args.push(t);
-                    } else {
-                        
-                    }
-                }
-                scope.register_function(&id, args, ast::Typedef::Unit);
+            ast::Statement::Function(_, vars, None, body, span) => {
                 scope.push();
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {

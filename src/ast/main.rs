@@ -32,6 +32,7 @@ fn main() {
         // a function taking two bool arguments returning the bool type
         // with some let statements and function calls
         fn a(x: bool, y: bool) -> bool {
+            let k = c(x, y);
             if x && y {
                 let a: bool = true;
                 y || a
@@ -80,7 +81,7 @@ fn main() {
         println!("statement_type_check Ok");
     }
 
-    inderpaderper::prompt();
+    //inderpaderper::prompt();
    
 }
 
