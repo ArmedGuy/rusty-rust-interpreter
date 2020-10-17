@@ -62,6 +62,11 @@ fn main() {
         // a function taking two bool arguments returning the i32 type
         // while
         fn c(x: bool, y: bool) -> i32 {
+            let k = 'hi hello';
+            let m = 'swag';
+            if (m == k) {
+                
+            }
             let mut b: i32 = 0;
             let mut c: i32 = 1;
             while (b < 10) {
@@ -69,6 +74,7 @@ fn main() {
             }
             c
         }
+
     }";
 
     let test = ProgramParser::new().parse(prg).unwrap();
@@ -78,9 +84,31 @@ fn main() {
     if result.is_err() {
         println!("{}", result.unwrap_err());
     } else {
-        println!("statement_type_check Ok");
+        println!("statement_type_check Ok for first");
     }
 
+    let prg2 = "fn test(a: &mut String) {
+        fn swag(k: &String) {
+
+        }
+        let mut b = 'hi';
+        swag(&b);
+        let mut e = &mut b;
+    }
+    fn test2(b: &i32) -> i32 {
+        return *b + 4;
+    }
+    ";
+
+    let test = ProgramParser::new().parse(prg2).unwrap();
+    //println!("{:?}", test);
+    let mut scope = type_checking::Scope::new(prg2.to_string());
+    let result  = type_checking::statement_type_check(&mut scope, vec![test]);
+    if result.is_err() {
+        println!("{}", result.unwrap_err());
+    } else {
+        println!("statement_type_check Ok for second");
+    }
     //inderpaderper::prompt();
    
 }

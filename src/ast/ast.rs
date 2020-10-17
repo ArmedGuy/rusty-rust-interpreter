@@ -2,9 +2,13 @@ use std::fmt::{Debug, Error, Formatter};
 
 // ast
 
+#[derive(Clone)]
 pub enum Expr {
     Number(i32),
     Boolean(bool),
+    Str(String),
+    Dereference(Box<Expr>),
+    Borrow(bool, Box<Expr>),
     Identifier(String, CodeSpan),
     Function(String, Vec<Box<Expr>>, CodeSpan),
     Op(Box<Expr>, Opcode, Box<Expr>, CodeSpan),
@@ -14,6 +18,7 @@ pub enum Expr {
     Error,
 }
 
+#[derive(Clone, Copy)]
 pub struct CodeSpan {
     pub l: usize,
     pub r: usize,
@@ -30,6 +35,10 @@ impl Debug for Expr {
         match *self {
             Number(n) => write!(fmt, "{:?}", n),
             Boolean(b) => write!(fmt, "{:?}", b),
+            Str(ref s) => write!(fmt, "\"{:?}\"", s),
+            Dereference(ref stmt) => write!(fmt, "*{:?}", stmt),
+            Borrow(true, ref stmt) => write!(fmt, "&mut {:?}", stmt),       
+            Borrow(false, ref stmt) => write!(fmt, "&{:?}", stmt),
             Identifier(ref id, _) => write!(fmt, "{}", id),
             Function(ref id, ref args, _) => write!(fmt, "{}({:?})", id, args),
             Op(ref l, op, ref r, _) => write!(fmt, "({:?} {:?} {:?})", l, op, r),
@@ -73,12 +82,14 @@ impl Debug for Opcode {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Typedef {
     Implicit,
     Unit,
     Bool,
     I32,
+    Str,
+    Ref(bool, Box<Typedef>),
 }
 
 impl Debug for Typedef {
@@ -88,7 +99,10 @@ impl Debug for Typedef {
             Unit => write!(fmt, "()"),
             Bool => write!(fmt, "bool"),
             I32 => write!(fmt, "i32"),
+            Str => write!(fmt, "String"),
             Implicit => write!(fmt, "implicit"),
+            Ref(true, ref t) => write!(fmt, "&mut {:?}", t),
+            Ref(false, ref t) => write!(fmt, "&{:?}", t),
         }
     }
 }
@@ -111,6 +125,7 @@ impl Debug for ConditionalType {
     }
 }
 
+#[derive(Clone)]
 pub enum Statement {
     Expr(Box<Expr>, CodeSpan),
     VarDef(String, Typedef),
@@ -130,9 +145,9 @@ impl Debug for Statement {
         use self::Statement::*;
         match *self {
             Expr(ref e, _) => write!(fmt, "{:?};", e),
-            VarDef(ref id, t) => write!(fmt, "{}: {:?}", id, t),
+            VarDef(ref id, ref t) => write!(fmt, "{}: {:?}", id, t),
             Function(ref id, ref args, None, ref b, _) => write!(fmt, "fn {}({:?}) {:?}", id, args, b),
-            Function(ref id, ref args, t, ref b, _) => write!(fmt, "fn {}({:?}) -> {:?} {:?}", id, args, t.unwrap(), b),
+            Function(ref id, ref args, ref t, ref b, _) => write!(fmt, "fn {}({:?}) -> {:?} {:?}", id, args, t, b),
             Block(ref stmts, None, _) => write!(fmt, "{{\n{:?}\n}}", stmts),
             Block(ref stmts, ref ret, _) => write!(fmt, "{{\n{:?}\n{:?}\n}}", stmts, ret.as_ref().unwrap()),
             Definition(ismut, ref vardef, ref e, _) => write!(fmt, "let{} {:?} = {:?});", if ismut { " mut" } else { "" }, vardef, e),

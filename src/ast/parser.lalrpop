@@ -13,6 +13,7 @@ match {
     r"/\*([^\*]*\*+[^\*/])*([^\*]*\*+|[^\*])*\*/" => { },  
     "i32",
     "bool",
+    "String",
     "{",
     "}",
     "()",
@@ -41,10 +42,13 @@ match {
     "else if",
     "return",
     "let",
+    "&",
+    "&mut",
     "mut",
     r"[0-9]+",
     r"([a-z_]|[A-Z])([a-z]|[A-Z]|[0-9]|_)*",
     "->",
+    r"'(.*)'",
     _
 }
 
@@ -57,6 +61,10 @@ pub Num: i32 = {
 pub Bool: bool = {
     "true" => true,
     "false" => false
+}
+
+Str: String = {
+    r"'(.*)'" => String::from_str(<>).unwrap(),
 }
 
 Identifier: String = {
@@ -93,6 +101,10 @@ CalculatedTerm: Box<Expr> = {
     FuncExpr,
     BoolTerm,
     NumTerm,
+    StrTerm,
+    "&" <CalculatedTerm> => Box::new(Expr::Borrow(false, <>)),
+    "&mut" <CalculatedTerm> => Box::new(Expr::Borrow(true, <>)),
+    "*" <CalculatedTerm> => Box::new(Expr::Dereference(<>)),
     <l:@L> <i:Identifier> <r:@R> => Box::new(Expr::Identifier(i, CodeSpan::new(l, r))),
     <l:@L> <op:ModExprOp> <t:CalculatedTerm> <r:@R> => Box::new(Expr::ModOp(op, t, CodeSpan::new(l, r))),
     "(" <CalculatedExpr> ")",
@@ -118,6 +130,9 @@ NumTerm: Box<Expr> = {
 };
 BoolTerm: Box<Expr> = {
     Bool => Box::new(Expr::Boolean(<>)),
+};
+StrTerm: Box<Expr> = {
+    Str => Box::new(Expr::Str(<>)),
 };
 
 BoolExprOp: Opcode = {
@@ -153,6 +168,9 @@ Type: Typedef = {
     "()" => Typedef::Unit,
     "bool" => Typedef::Bool,
     "i32" => Typedef::I32,
+    "String" => Typedef::Str,
+    "&" <Type> => Typedef::Ref(false, Box::new(<>)),
+    "&mut" <Type> => Typedef::Ref(true, Box::new(<>)),
 }
 
 VarDef: Box<Statement> = {
@@ -170,6 +188,7 @@ IStatement: Box<Statement> = {
     <AssignStatement> ";",
     <ConditionalStatement> ";"?,
     <LoopStatement> ";"?,
+    <BlockStatement> ";"?,
     <l:@L> <e:Expr> ";" <r:@R> => Box::new(Statement::Expr(e, CodeSpan::new(l, r)))
 };
 

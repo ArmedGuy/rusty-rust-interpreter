@@ -9,22 +9,36 @@ struct FuncSignature {
     ret: ast::Typedef,
 }
 
+#[derive(Clone)]
+struct VarFeatures {
+    base: ast::Typedef,
+    mutable: bool,
+    reference: bool,
+    borrowed: bool,
+    mutborrowed: bool,
+    transferred: bool,
+}
+
 pub struct Scope {
     functable: HashMap<i32, HashMap<String, FuncSignature>>,
-    vartable: HashMap<i32, HashMap<String, ast::Typedef>>,
+    vartable: HashMap<i32, HashMap<String, VarFeatures>>,
+    fnscopes: Vec<i32>,
     scope: i32,
     source: String,
 }
 
 impl Scope {
     pub fn new(source: String) -> Scope {
-        let mut s = Scope {functable: HashMap::new(), vartable: HashMap::new(), scope: 0, source: source };
+        let mut s = Scope {functable: HashMap::new(), vartable: HashMap::new(), fnscopes: vec![0], scope: 0, source: source };
         s.functable.insert(0, HashMap::new());
         s.vartable.insert(0, HashMap::new());
         s
     }
-    fn push(&mut self) {
+    fn push(&mut self, fnscope: bool) {
         self.scope += 1;
+        if fnscope {
+            self.fnscopes.push(self.scope)
+        }
         self.functable.insert(self.scope, HashMap::new());
         self.vartable.insert(self.scope, HashMap::new());
     }
@@ -32,25 +46,114 @@ impl Scope {
     fn pop(&mut self) {
         self.functable.remove(&self.scope);
         self.vartable.remove(&self.scope);
+        if self.fnscopes.contains(&self.scope) {
+            self.fnscopes.pop();
+        }
         self.scope -= 1;
     }
 
-    fn register_function(&mut self, id: &String, args: Vec<ast::Typedef>, ret: ast::Typedef) {
+    fn register_function(&mut self, id: &String, args: &Vec<ast::Typedef>, ret: ast::Typedef) {
         let scope = self.functable.get_mut(&self.scope).unwrap();
-        scope.insert(id.to_string(), FuncSignature{args: args, ret: ret });
+        scope.insert(id.to_string(), FuncSignature{args: args.to_vec(), ret: ret });
     }
 
-    fn register_variable(&mut self, id: &String, ret: ast::Typedef) {
+    fn register_variable(&mut self, id: &String, ret: ast::Typedef, mutable: bool) {
         let scope = self.vartable.get_mut(&self.scope).unwrap();
-        scope.insert(id.to_string(), ret);
+        scope.insert(id.to_string(), VarFeatures{
+            base: ret,
+            borrowed: false,
+            mutable: mutable,
+            reference: false,
+            mutborrowed: false,
+            transferred: false,
+        });
     }
 
     fn get_var(&mut self, id: &String) -> Result<ast::Typedef, Error> {
         let mut current = self.scope;
-        while current >= 0 {
+        let fnscope = *self.fnscopes.last().unwrap();
+        while current >= fnscope {
             let scope = self.vartable.get(&current).unwrap();
             if scope.contains_key(id) {
-                return Ok(*scope.get(id).unwrap());
+                let var = scope.get(id).unwrap();
+                if var.transferred {
+                    return Err(format!("The data of {} has been moved, cannot use here", id))
+                }
+                return Ok(var.base.clone());
+            }
+            current -= 1;
+        }
+        Err(format!("variable {} not found in scope", id))
+    }
+
+    fn borrow_var(&mut self, id: &String, mutable: bool) -> Result<ast::Typedef, Error> {
+        let mut current = self.scope;
+        let fnscope = *self.fnscopes.last().unwrap();
+        while current >= fnscope {
+            let mut scope = self.vartable.get_mut(&current).unwrap();
+            if scope.contains_key(id) {
+                let var = scope.get(id).unwrap();
+                if mutable && var.mutborrowed {
+                    return Err(format!("Variable {} already borrowed as mutable", id))
+                }
+                if mutable && var.borrowed {
+                    return Err(format!("Variable {} already borrowed as immutable", id))
+                }
+                if mutable && !var.mutable {
+                    return Err(format!("cannot borrow {} as mutable, as it is not declared as mutable", id))
+                }
+                let mut vartype = var.base.clone();
+                if let ast::Typedef::Ref(ref_mutable, inner_type) = vartype {
+                    if mutable && !ref_mutable {
+                        return Err(format!("cannot borrow {}'s data as mutable", id))
+                    }
+                    vartype = *inner_type;
+                }
+                let mut newvar = var.clone();
+                if mutable {
+                    newvar.mutborrowed = true;
+                } else {
+                    newvar.borrowed = true;
+                }
+                let t = ast::Typedef::Ref(mutable, Box::new(vartype));
+                newvar.base = t.clone();
+                self.vartable.get_mut(&self.scope).unwrap().insert(id.to_string(), newvar);
+                return Ok(t);
+            }
+            current -= 1;
+        }
+        Err(format!("variable {} not found in scope", id))
+    }
+
+    fn check_move(&mut self, expr: ast::Expr) -> Result<bool, Error> {
+        if let ast::Expr::Identifier(id, span) = expr {
+            self.transfer_ownership(&id)
+        } else {
+            return Ok(false);
+        }
+    }
+
+    fn transfer_ownership(&mut self, id: &String) -> Result<bool, Error> {
+        let mut current = self.scope;
+        let fnscope = *self.fnscopes.last().unwrap();
+        while current >= fnscope {
+            let mut scope = self.vartable.get_mut(&current).unwrap();
+            if scope.contains_key(id) {
+                let mut var = scope.get_mut(id).unwrap();
+                return match var.base {
+                    ast::Typedef::Ref(_, _) => {
+                        Ok(false)
+                    },
+                    ast::Typedef::Str => {
+                        if var.transferred {
+                            Err(format!("{} has already been moved", id))
+                        } else {
+                            var.transferred = true;
+                            Ok(true)
+                        }
+                    },
+                    _ => Ok(false) // All others we just copy
+                }
             }
             current -= 1;
         }
@@ -65,7 +168,7 @@ impl Scope {
                 let sign = scope.get(id).unwrap();
                 let matching = args.iter().zip(sign.args.iter()).filter(|&(a, b)| a == b).count();
                 if matching == args.len() && matching == sign.args.len() {
-                    return Ok(sign.ret);
+                    return Ok(sign.ret.clone());
                 }
             }
             current -= 1;
@@ -124,6 +227,7 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
     match *expr {
         ast::Expr::Boolean(_) => Ok(ast::Typedef::Bool),
         ast::Expr::Number(_) => Ok(ast::Typedef::I32),
+        ast::Expr::Str(s) => Ok(ast::Typedef::Str),
         ast::Expr::Op(e1, op, e2, span) => {
             let r1 = expr_type_check(scope, e1);
             let r2 = expr_type_check(scope, e2);
@@ -154,7 +258,7 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
                     }
                     return scope.format_error(format!("Could not apply {:?} between {:?} and {:?}", op, t1, t2), span)
                 },
-                ast::Opcode::And | ast::Opcode::Or =>{
+                ast::Opcode::And | ast::Opcode::Or => {
                     if t1 == ast::Typedef::Bool && t2 == ast::Typedef::Bool {
                         return Ok(ast::Typedef::Bool)
                     }
@@ -188,16 +292,26 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
         ast::Expr::Function(id, exprs, span) => {
             // TODO typecheck expressions
             let mut args = vec![];
+            scope.push(false); // this is cheating, but yolo
             for expr in exprs {
+                let expr2 = expr.clone();
                 let r = expr_type_check(scope, expr);
                 if r.is_err() {
+                    scope.pop();
                     return r;
                 } else {
+                    let mv = scope.check_move(*expr2);
+                    if mv.is_err() {
+                        scope.pop();
+                        return Err(format!("{}", mv.unwrap_err()));
+                    }
                     args.push(r.unwrap());
                 }
             }
+            
             let r = scope.get_fn(&id, args);
-            if r.is_err() {
+            scope.pop();
+            return if r.is_err() {
                 scope.format_error(format!("{}", r.unwrap_err()), span)
             } else {
                 Ok(r.unwrap())
@@ -213,13 +327,46 @@ pub fn expr_type_check(scope: &mut Scope, expr: Box<ast::Expr>) -> Result<ast::T
         },
         ast::Expr::ConditionalExpr(stmt, _) => {
             statement_type_check(scope, vec![stmt])
-        }
+        },
+        ast::Expr::Borrow(mutable, inner) => {
+            if let ast::Expr::Identifier(id, span) = *inner {
+                let r = scope.get_var(&id);
+                if r.is_err() {
+                    scope.format_error(format!("{}", r.unwrap_err()), span)
+                } else {
+                    let r = scope.borrow_var(&id, mutable);
+                    if r.is_err() {
+                        scope.format_error(r.unwrap_err(), span)
+                    } else {
+                        r
+                    }
+                }
+            } else {
+                Err(format!("Can only borrow variables"))
+            }
+        },
+        ast::Expr::Dereference(inner) => {
+            if let ast::Expr::Identifier(id, span) = *inner {
+                let r = scope.get_var(&id);
+                if r.is_err() {
+                    scope.format_error(format!("{}", r.unwrap_err()), span)
+                } else {
+                    if let ast::Typedef::Ref(_, inner_type) = r.unwrap() {
+                        Ok(*inner_type)
+                    } else {
+                        scope.format_error(format!("Cannot dereference {}, is not a reference", id), span)
+                    }
+                }
+            } else {
+                Err(format!("Can only dereference variables"))
+            }
+        },
         _ => Err(format!("Unrecognized expression {:?}", *expr)),
     }
 }
 
 pub fn block_type_check(scope: &mut Scope, body: Box<ast::Statement>) -> (Result<ast::Typedef, Error>, ast::CodeSpan) {
-    scope.push();
+    scope.push(false);
     let ret = match *body {
         ast::Statement::Block(stmts, None, span) => {
             (statement_type_check(scope, stmts), span)
@@ -292,7 +439,7 @@ fn cond_type_check(scope: &mut Scope, next: Box<ast::Statement>) -> Result<ast::
         ast::Statement::Conditional(ast::ConditionalType::Else, None, body, None, _) => {
             block_type_check(scope, body).0
         },
-        _ => Err(format!("Unrecoverable error")),
+        _ => Err(format!("Unrecoverable error in cond")),
     }
 }
 
@@ -308,14 +455,14 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
         if let ast::Statement::Function(id, vars, ret, _, _) = stmt {
             let mut args = vec![];
             for var in vars {
-                if let ast::Statement::VarDef(_, t) = **var {
-                    args.push(t);
+                if let ast::Statement::VarDef(_, t) = &**var {
+                    args.push(t.clone());
                 } else {
                     
                 }
             }
-            let ret = if ret.is_some() { ret.unwrap() } else { ast::Typedef::Unit };
-            scope.register_function(&id, args, ret);
+            let ret = if ret.is_some() { ret.as_ref().unwrap().clone() } else { ast::Typedef::Unit };
+            scope.register_function(&id, &args, ret);
         } else {
 
         }
@@ -328,10 +475,10 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 statement_type_check(scope, statements)
             },
             ast::Statement::Function(_, vars, Some(ret), body, span) => {
-                scope.push();
+                scope.push(true);
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {
-                        scope.register_variable(&id, rt);
+                        scope.register_variable(&id, rt, false);
                     } else {
 
                     }
@@ -341,10 +488,10 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 scope.format_function_if_err(ret, span)
             },
             ast::Statement::Function(_, vars, None, body, span) => {
-                scope.push();
+                scope.push(true);
                 for var in vars {
                     if let ast::Statement::VarDef(id, rt) = *var {
-                        scope.register_variable(&id, rt);
+                        scope.register_variable(&id, rt, false);
                     } else {
 
                     }
@@ -353,6 +500,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                 scope.pop();
                 scope.format_function_if_err(ret, span)
             },
+            ast::Statement::Block(_, _, span) => block_type_check(scope, Box::new(stmt)).0,
             ast::Statement::Expr(e, _) => {
                 let r = expr_type_check(scope, e);
                 if r.is_err() {
@@ -361,15 +509,21 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                     Ok(ast::Typedef::Unit)
                 }
             },
-            ast::Statement::Definition(_, vardef, e, span) => {
+            ast::Statement::Definition(mutable, vardef, e, span) => {
                 if let ast::Statement::VarDef(id, def) = *vardef {
-                    let r = expr_type_check(scope, e);
+                    let expr = *e;
+                    let expr2 = expr.clone();
+                    let r = expr_type_check(scope, Box::new(expr));
                     if r.is_err() {
                         r
                     } else {
+                        let mv = scope.check_move(expr2);
+                        if mv.is_err() {
+                            return Err(format!("{}", mv.unwrap_err()));
+                        }
                         let t = r.unwrap();
                         if def == t || def == ast::Typedef::Implicit {
-                            scope.register_variable(&id, t);
+                            scope.register_variable(&id, t, mutable);
                             Ok(ast::Typedef::Unit)
                         } else {
                             scope.format_error(format!("Expression evaluated to {:?}, expected {:?}", t, def), span)
@@ -448,7 +602,7 @@ pub fn statement_type_check(scope: &mut Scope, stmts: Vec<Box<ast::Statement>>) 
                     }
                 }
             },
-            _ => Err(format!("Unrecoverable error")),
+            _ => Err(format!("Unrecoverable error in stmt")),
         };
         if res.is_err() {
             return res
