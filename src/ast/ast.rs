@@ -2,8 +2,9 @@ use std::fmt::{Debug, Error, Formatter};
 
 // ast
 
-#[derive(Clone)]
+#[derive(PartialEq, Clone)]
 pub enum Expr {
+    Unit,
     Number(i32),
     Boolean(bool),
     Str(String),
@@ -18,7 +19,7 @@ pub enum Expr {
     Error,
 }
 
-#[derive(Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 pub struct CodeSpan {
     pub l: usize,
     pub r: usize,
@@ -33,6 +34,7 @@ impl Debug for Expr {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
         use self::Expr::*;
         match *self {
+            Unit => write!(fmt, "()"),
             Number(n) => write!(fmt, "{:?}", n),
             Boolean(b) => write!(fmt, "{:?}", b),
             Str(ref s) => write!(fmt, "\"{:?}\"", s),
@@ -50,7 +52,7 @@ impl Debug for Expr {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Opcode {
     Mul,
     Div,
@@ -107,7 +109,7 @@ impl Debug for Typedef {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum ConditionalType {
     If,
     ElseIf,
@@ -125,7 +127,7 @@ impl Debug for ConditionalType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Statement {
     Expr(Box<Expr>, CodeSpan),
     VarDef(String, Typedef),

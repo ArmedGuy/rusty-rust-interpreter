@@ -7,6 +7,7 @@ use parser::*;
 pub mod ast;
 pub mod type_checking;
 pub mod inderpaderper;
+pub mod shittyvm;
 
 fn main() {
     let prg = "fn _let_and_return() {
@@ -74,13 +75,12 @@ fn main() {
             }
             c
         }
-
     }";
 
     let test = ProgramParser::new().parse(prg).unwrap();
     //println!("{:?}", test);
     let mut scope = type_checking::Scope::new(prg.to_string());
-    let result  = type_checking::statement_type_check(&mut scope, vec![test]);
+    let result  = type_checking::statement_type_check(&mut scope, vec![test.clone()]);
     if result.is_err() {
         println!("{}", result.unwrap_err());
     } else {
@@ -108,6 +108,34 @@ fn main() {
         println!("{}", result.unwrap_err());
     } else {
         println!("statement_type_check Ok for second");
+    }
+
+    let prg = "
+    fn main() {
+        yolo();
+        swag(2, 4);
+        swag(3, 4);
+    }
+    fn swag(x: i32, y: i32) -> i32 {
+        x + y
+    }
+    fn yolo() -> i32 {
+        let mut i = 4;
+        let mut j = 0;
+        while (i > 1) {
+            j = j + i;
+            i = i - 1;
+        }
+        return j;
+    }
+    ";
+    let ast = ProgramParser::new().parse(prg).unwrap();
+    let mut evalscope = shittyvm::Scope::new(prg.to_string());
+    let result = shittyvm::eval_program(&mut evalscope, ast);
+    if result.is_err() {
+        println!("{}", result.unwrap_err());
+    } else {
+        println!("eval_program Ok for first");
     }
     //inderpaderper::prompt();
    
